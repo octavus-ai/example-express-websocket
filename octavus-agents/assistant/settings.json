@@ -1,0 +1,6 @@
+{
+  "slug": "example-express-websocket-assistant",
+  "name": "Example Express WebSocket Assistant",
+  "description": "A helpful AI assistant demonstrating Octavus integration with Express and WebSocket.",
+  "format": "interactive"
+}

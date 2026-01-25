@@ -1,0 +1,196 @@
+# Assistant - A helpful AI assistant
+# Demonstrates Octavus features in a natural, intuitive way
+
+# Session input (optional)
+input:
+  USER_NAME:
+    type: string
+    description: User's display name
+    optional: true
+    default: ""
+
+# Resources - synced to client UI (sidebar)
+# These persist and can be saved by the consumer for session restore
+resources:
+  CHAT_TITLE:
+    type: string
+    description: Auto-generated title for the chat
+    default: "New Chat"
+
+  CHAT_SUMMARY:
+    type: string
+    description: Summary of the conversation
+    default: ""
+
+  CHAT_IMAGE:
+    type: string
+    description: Generated cover image URL for the chat
+    default: ""
+
+# Internal variables
+variables:
+  CONVERSATION_TEXT:
+    type: string
+  GENERATED_SUMMARY:
+    type: string
+  GENERATED_TITLE:
+    type: string
+  IMAGE_PROMPT:
+    type: string
+  GENERATED_IMAGE_URL:
+    type: string
+
+# Triggers
+triggers:
+  user-message:
+    description: User sends a message
+    input:
+      USER_MESSAGE:
+        type: string
+      ATTACHMENTS:
+        type: file[]
+        optional: true
+
+  generate-metadata:
+    description: Generate title, summary, and cover image for the chat
+
+# External tool - implemented by consumer
+tools:
+  get-current-time:
+    description: Getting the current time
+    display: description
+    parameters:
+      timezone:
+        type: string
+        description: Timezone (e.g., "America/New_York", "UTC")
+        optional: true
+
+# Octavus skill - code execution
+skills:
+  qr-code:
+    display: description
+    description: Generating QR code
+
+# Agent configuration
+agent:
+  model: anthropic/claude-sonnet-4-5
+  system: system
+  input:
+    - USER_NAME
+  tools:
+    - get-current-time
+  skills:
+    - qr-code
+  agentic: true
+  maxSteps: 10
+  thinking: medium
+  imageModel: openai/gpt-image-1
+
+# Handlers
+handlers:
+  # Primary chat - simple and natural
+  user-message:
+    Add user message:
+      block: add-message
+      role: user
+      prompt: user-message
+      input:
+        - USER_MESSAGE
+      files:
+        - ATTACHMENTS
+      uiContent: USER_MESSAGE
+      display: hidden
+
+    Respond:
+      block: next-message
+
+  # Generate metadata - demonstrates threads, resources, and image generation
+  generate-metadata:
+    Serialize conversation:
+      block: serialize-thread
+      format: markdown
+      output: CONVERSATION_TEXT
+
+    Start metadata thread:
+      block: start-thread
+      thread: metadata-generator
+      model: anthropic/claude-sonnet-4-5
+      system: metadata-system
+      input:
+        - CONVERSATION: CONVERSATION_TEXT
+
+    # Generate summary
+    Add summary request:
+      block: add-message
+      thread: metadata-generator
+      role: user
+      prompt: summary-request
+
+    Generate summary:
+      block: next-message
+      thread: metadata-generator
+      description: Generating summary
+      display: stream
+      independent: true
+      output: GENERATED_SUMMARY
+
+    Save summary:
+      block: set-resource
+      resource: CHAT_SUMMARY
+      value: GENERATED_SUMMARY
+      display: name
+
+    # Generate title
+    Add title request:
+      block: add-message
+      thread: metadata-generator
+      role: user
+      prompt: title-request
+      input:
+        - SUMMARY: GENERATED_SUMMARY
+
+    Generate title:
+      block: next-message
+      thread: metadata-generator
+      description: Generating title
+      display: stream
+      independent: true
+      output: GENERATED_TITLE
+
+    Save title:
+      block: set-resource
+      resource: CHAT_TITLE
+      value: GENERATED_TITLE
+      display: name
+
+    # Generate image prompt
+    Add image prompt request:
+      block: add-message
+      thread: metadata-generator
+      role: user
+      prompt: image-prompt-request
+      input:
+        - SUMMARY: GENERATED_SUMMARY
+
+    Generate image prompt:
+      block: next-message
+      thread: metadata-generator
+      description: Creating image prompt
+      display: stream
+      independent: true
+      output: IMAGE_PROMPT
+
+    # Generate cover image
+    Generate cover image:
+      block: generate-image
+      prompt: IMAGE_PROMPT
+      imageModel: openai/gpt-image-1
+      size: 1024x1024
+      output: GENERATED_IMAGE_URL
+      description: Generating cover image
+
+    Save image:
+      block: set-resource
+      resource: CHAT_IMAGE
+      value: GENERATED_IMAGE_URL
+      display: name
