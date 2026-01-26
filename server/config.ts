@@ -18,4 +18,4 @@ export function getAgentId(): string {
   return agentId;
 }
 
-export const PORT = process.env.PORT ?? 3001;
+export const PORT = process.env.PORT ?? 8889;

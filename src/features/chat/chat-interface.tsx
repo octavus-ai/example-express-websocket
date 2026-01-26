@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Paperclip, X, Loader2, AlertCircle, Square, Send, ExternalLink } from 'lucide-react';
+import { z } from 'zod';
 import {
   isRateLimitError,
   isAuthenticationError,
@@ -12,6 +13,14 @@ import { cn } from '@/lib/utils';
 import { useOctavusSocket } from '@/hooks/useOctavusSocket';
 import { MessageBubble } from './message-bubble';
 import { ChatSidebar, type ChatMetadata } from './chat-sidebar';
+import { FeedbackModal } from './feedback-modal';
+
+/** Schema for request-feedback tool arguments */
+const feedbackToolArgsSchema = z.object({
+  promptText: z.string().optional(),
+  showRating: z.boolean().optional(),
+  showComment: z.boolean().optional(),
+});
 
 interface PendingFile {
   file: File;
@@ -68,14 +77,32 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setIsGeneratingMetadata(false);
   }, []);
 
-  const { messages, status, error, send, stop, uploadFiles } = useOctavusSocket({
-    sessionId,
-    onResourceUpdate: handleResourceUpdate,
-    onFinish: handleFinish,
-    onError: handleError,
-  });
+  const { messages, status, error, send, stop, uploadFiles, pendingClientTools } = useOctavusSocket(
+    {
+      sessionId,
+      onResourceUpdate: handleResourceUpdate,
+      onFinish: handleFinish,
+      onError: handleError,
+    },
+  );
 
   const isStreaming = status === 'streaming';
+  const isAwaitingInput = status === 'awaiting-input';
+
+  // Get pending feedback tools with parsed args
+  const feedbackTools = useMemo(() => {
+    const tools = pendingClientTools['request-feedback'] ?? [];
+    return tools.map((tool) => {
+      const result = feedbackToolArgsSchema.safeParse(tool.args);
+      return {
+        ...tool,
+        parsedArgs: result.success ? result.data : {},
+      };
+    });
+  }, [pendingClientTools]);
+
+  // For simplicity, handle first pending feedback tool (multiple can be supported by mapping)
+  const feedbackTool = feedbackTools[0] ?? null;
 
   useEffect(() => {
     const scrollToBottom = () => {
@@ -393,6 +420,24 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
         onGenerateMetadata={handleGenerateMetadata}
         isGenerating={isGeneratingMetadata || isStreaming}
       />
+
+      {/* Feedback Modal for client-side tool */}
+      {feedbackTool && (
+        <FeedbackModal
+          {...feedbackTool.parsedArgs}
+          onSubmit={(rating, comment) => feedbackTool.submit({ rating, comment })}
+          onCancel={() => feedbackTool.cancel()}
+        />
+      )}
+
+      {/* Awaiting input indicator (for other interactive tools) */}
+      {isAwaitingInput && !feedbackTool && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="rounded-lg border border-border bg-surface px-6 py-4 text-foreground">
+            Waiting for input...
+          </div>
+        </div>
+      )}
     </div>
   );
 }

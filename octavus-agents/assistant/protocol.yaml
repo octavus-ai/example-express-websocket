@@ -54,8 +54,9 @@ triggers:
   generate-metadata:
     description: Generate title, summary, and cover image for the chat
 
-# External tool - implemented by consumer
+# External tools
 tools:
+  # Server-side tool - implemented by consumer's server
   get-current-time:
     description: Getting the current time
     display: description
@@ -63,6 +64,28 @@ tools:
       timezone:
         type: string
         description: Timezone (e.g., "America/New_York", "UTC")
+        optional: true
+
+  # Client-side tools - handled in browser
+  get-browser-info:
+    description: Get user's browser information
+    display: description
+
+  request-feedback:
+    description: Request feedback from the user
+    display: description
+    parameters:
+      promptText:
+        type: string
+        description: Text to display at the top of the feedback modal
+        optional: true
+      showRating:
+        type: boolean
+        description: Whether to show rating stars
+        optional: true
+      showComment:
+        type: boolean
+        description: Whether to show comment input
         optional: true
 
 # Octavus skill - code execution
@@ -79,6 +102,8 @@ agent:
     - USER_NAME
   tools:
     - get-current-time
+    - get-browser-info
+    - request-feedback
   skills:
     - qr-code
   agentic: true
