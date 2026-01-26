@@ -60,7 +60,7 @@ A chat application demonstrating Octavus integration with Express and WebSocket 
    npm run dev
    ```
 
-6. Open http://localhost:3000
+6. Open http://localhost:8888
 
 ## Architecture
 
@@ -80,7 +80,7 @@ Browser (React/Vite) <--SockJS--> Express Server <--HTTP--> Octavus Platform
 | `OCTAVUS_API_KEY`     | API key for runtime                  | Yes      |
 | `OCTAVUS_AGENT_ID`    | Agent ID (from sync)                 | Yes      |
 | `OCTAVUS_CLI_API_KEY` | API key for CLI sync                 | No       |
-| `PORT`                | Server port (default: 3001)          | No       |
+| `PORT`                | Server port (default: 8889)          | No       |
 
 ## Scripts
 

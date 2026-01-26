@@ -16,6 +16,8 @@ import {
   type UploadUrlsResponse,
   type UIMessage,
   type OctavusError,
+  type ClientToolHandler,
+  type InteractiveTool,
 } from '@octavus/react';
 
 export interface UseOctavusSocketOptions {
@@ -45,6 +47,8 @@ interface UseOctavusSocketReturn {
     files: FileList | File[],
     onProgress?: (fileIndex: number, progress: number) => void,
   ) => Promise<FileReference[]>;
+  /** Pending interactive client tools awaiting user input */
+  pendingClientTools: Record<string, InteractiveTool[]>;
 }
 
 export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSocketReturn {
@@ -149,6 +153,27 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
     [sessionId],
   );
 
+  // Define client-side tools
+  const clientTools = useMemo<Record<string, ClientToolHandler>>(
+    () => ({
+      // Interactive: requires user input via modal
+      'request-feedback': 'interactive',
+
+      // Automatic: executes immediately, no user interaction needed
+      'get-browser-info': () =>
+        Promise.resolve({
+          userAgent: navigator.userAgent,
+          language: navigator.language,
+          languages: [...navigator.languages],
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          screenWidth: window.screen.width,
+          screenHeight: window.screen.height,
+          colorDepth: window.screen.colorDepth,
+        }),
+    }),
+    [],
+  );
+
   const {
     messages,
     status,
@@ -160,10 +185,12 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
     connect,
     disconnect,
     uploadFiles: chatUploadFiles,
+    pendingClientTools,
   } = useOctavusChat({
     transport,
     initialMessages,
     requestUploadUrls,
+    clientTools,
     onResourceUpdate: (name, value) => {
       onResourceUpdate?.(name, value);
     },
@@ -215,5 +242,6 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
     connectionState,
     connectionError,
     uploadFiles,
+    pendingClientTools,
   };
 }

@@ -7,20 +7,21 @@
  * 1. Client creates session via HTTP POST /api/sessions
  * 2. Client connects to WebSocket
  * 3. Client sends { type: 'connect', sessionId } to attach
- * 4. Client sends triggers, receives streaming events
+ * 4. Client sends triggers or continue messages, receives streaming events
  */
 
 import type { Connection } from 'sockjs';
-import { createInternalErrorEvent, type AgentSession, type UIMessage } from '@octavus/server-sdk';
+import {
+  createInternalErrorEvent,
+  type AgentSession,
+  type UIMessage,
+  type SessionRequest,
+  type StreamEvent,
+} from '@octavus/server-sdk';
 import { octavusClient } from './client';
 import { tools, resources } from './assistant';
 
-interface TriggerMessage {
-  type: 'trigger';
-  triggerName: string;
-  input?: Record<string, unknown>;
-}
-
+/** Socket protocol messages */
 interface StopMessage {
   type: 'stop';
 }
@@ -34,7 +35,7 @@ interface GetMessagesMessage {
   type: 'get-messages';
 }
 
-type ClientMessage = TriggerMessage | StopMessage | ConnectMessage | GetMessagesMessage;
+type ClientMessage = SessionRequest | StopMessage | ConnectMessage | GetMessagesMessage;
 
 interface MessagesUpdateEvent {
   type: 'messages-update';
@@ -53,20 +54,21 @@ function isValidMessage(data: unknown): data is ClientMessage {
   }
 
   const msg = data as Record<string, unknown>;
-  if (msg.type === 'connect' && typeof msg.sessionId === 'string') {
-    return true;
-  }
-  if (msg.type === 'trigger' && typeof msg.triggerName === 'string') {
-    return true;
-  }
-  if (msg.type === 'stop') {
-    return true;
-  }
-  if (msg.type === 'get-messages') {
-    return true;
-  }
+
+  // Socket protocol messages
+  if (msg.type === 'connect' && typeof msg.sessionId === 'string') return true;
+  if (msg.type === 'stop') return true;
+  if (msg.type === 'get-messages') return true;
+
+  // Session requests (passed directly to session.execute())
+  if (msg.type === 'trigger' && typeof msg.triggerName === 'string') return true;
+  if (msg.type === 'continue' && typeof msg.executionId === 'string') return true;
 
   return false;
+}
+
+function isSessionRequest(msg: ClientMessage): msg is SessionRequest {
+  return msg.type === 'trigger' || msg.type === 'continue';
 }
 
 export function createSocketHandler(): (conn: Connection) => void {
@@ -110,8 +112,9 @@ export function createSocketHandler(): (conn: Connection) => void {
           return;
         }
 
-        if (data.type === 'trigger') {
-          await handleTrigger(data);
+        // Session requests (trigger or continue)
+        if (isSessionRequest(data)) {
+          await handleSessionRequest(data);
         }
       } catch (error) {
         console.error('[Socket] Failed to handle message:', error);
@@ -174,25 +177,14 @@ export function createSocketHandler(): (conn: Connection) => void {
       console.log('[Socket] Attached to session:', sessionId);
     }
 
-    async function handleTrigger(msg: TriggerMessage): Promise<void> {
-      if (!context.session || !context.sessionId) {
-        const errorEvent = createInternalErrorEvent(
-          'Not connected to session. Send { type: "connect", sessionId } first.',
-        );
-        conn.write(JSON.stringify(errorEvent));
-        return;
-      }
-
+    /**
+     * Streams events to the client and fetches messages after completion.
+     */
+    async function streamToClient(events: AsyncGenerator<StreamEvent>): Promise<void> {
       if (context.abortController) {
         context.abortController.abort();
       }
       context.abortController = new AbortController();
-
-      console.log('[Socket] Triggering:', msg.triggerName, msg.input);
-
-      const events = context.session.trigger(msg.triggerName, msg.input, {
-        signal: context.abortController.signal,
-      });
 
       try {
         for await (const event of events) {
@@ -202,7 +194,7 @@ export function createSocketHandler(): (conn: Connection) => void {
           conn.write(JSON.stringify(event));
         }
 
-        // Send updated messages for client persistence after trigger completes
+        // Send updated messages for client persistence after streaming completes
         if (!context.abortController?.signal.aborted && context.sessionId) {
           try {
             const result = await octavusClient.agentSessions.getMessages(context.sessionId);
@@ -225,6 +217,25 @@ export function createSocketHandler(): (conn: Connection) => void {
       } finally {
         context.abortController = null;
       }
+    }
+
+    async function handleSessionRequest(req: SessionRequest): Promise<void> {
+      if (!context.session || !context.sessionId) {
+        const errorEvent = createInternalErrorEvent(
+          'Not connected to session. Send { type: "connect", sessionId } first.',
+        );
+        conn.write(JSON.stringify(errorEvent));
+        return;
+      }
+
+      console.log('[Socket] Executing:', req.type, req);
+
+      // execute() handles both triggers and continuations
+      const events = context.session.execute(req, {
+        signal: context.abortController?.signal,
+      });
+
+      await streamToClient(events);
     }
 
     conn.on('close', () => {

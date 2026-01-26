@@ -13,14 +13,14 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: 8888,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:8889',
         changeOrigin: true,
       },
       '/octavus': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:8889',
         ws: true,
       },
     },
