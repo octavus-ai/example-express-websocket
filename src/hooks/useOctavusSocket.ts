@@ -3,6 +3,11 @@
  *
  * Manages WebSocket connection to the Express server for real-time
  * agent communication using SockJS.
+ *
+ * Session lifecycle:
+ * 1. Session is created via REST API (POST /api/sessions) before this hook is used
+ * 2. sessionId is passed to this hook along with initialMessages from the server
+ * 3. WebSocket connects and attaches to the session for streaming
  */
 
 import { useMemo, useCallback, useEffect, useRef } from 'react';
@@ -21,9 +26,9 @@ import {
 } from '@octavus/react';
 
 export interface UseOctavusSocketOptions {
-  /** Session ID to connect to */
+  /** Session ID (created via REST API before using this hook) */
   sessionId: string;
-  /** Initial messages to display (from server restore) */
+  /** Initial messages to display (loaded from server) */
   initialMessages?: UIMessage[];
   /** Callback when resource values are updated */
   onResourceUpdate?: (name: string, value: unknown) => void;
@@ -47,7 +52,6 @@ interface UseOctavusSocketReturn {
     files: FileList | File[],
     onProgress?: (fileIndex: number, progress: number) => void,
   ) => Promise<FileReference[]>;
-  /** Pending interactive client tools awaiting user input */
   pendingClientTools: Record<string, InteractiveTool[]>;
 }
 
@@ -61,40 +65,26 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
     onError,
   } = options;
 
-  // Use refs to track connection state without causing re-renders
-  const hasConnectedRef = useRef(false);
-  const sessionIdRef = useRef(sessionId);
-
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
-  
-  // Refs for callbacks to avoid stale closures
+  // Refs for callbacks to avoid stale closures in socket handler
   const onMessagesUpdateRef = useRef(onMessagesUpdate);
   const onResourceUpdateRef = useRef(onResourceUpdate);
-  
+
   useEffect(() => {
     onMessagesUpdateRef.current = onMessagesUpdate;
   }, [onMessagesUpdate]);
-  
+
   useEffect(() => {
     onResourceUpdateRef.current = onResourceUpdate;
   }, [onResourceUpdate]);
 
+  // Connect function - sessionId is required (validated by REST API before this hook runs)
   const connectSocket = useCallback((): Promise<SocketLike> => {
     return new Promise((resolve, reject) => {
-      const currentSessionId = sessionIdRef.current;
-      if (!currentSessionId) {
-        reject(new Error('Session ID required'));
-        return;
-      }
-
-      console.log('[Socket] Creating SockJS connection...');
       const sock = new SockJS('/octavus');
 
       sock.onopen = () => {
-        console.log('[Socket] Connected, attaching to session:', currentSessionId);
-        sock.send(JSON.stringify({ type: 'connect', sessionId: currentSessionId }));
+        console.log('[Socket] Connected, attaching to session:', sessionId);
+        sock.send(JSON.stringify({ type: 'connect', sessionId }));
         resolve(sock);
       };
 
@@ -103,8 +93,9 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
         reject(new Error('Failed to connect to socket'));
       };
     });
-  }, []); // No dependencies - uses ref for sessionId
+  }, [sessionId]);
 
+  // Transport - stable as long as sessionId doesn't change
   const transport = useMemo(
     () =>
       createSocketTransport({
@@ -114,23 +105,28 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
           if (
             typeof data === 'object' &&
             data !== null &&
-            'type' in data
+            'type' in data &&
+            (data as { type: string }).type === 'messages-update' &&
+            'messages' in data
           ) {
-            const typed = data as { type: string; messages?: UIMessage[]; name?: string; value?: unknown };
-            
-            if (typed.type === 'messages-update' && typed.messages) {
-              onMessagesUpdateRef.current?.(typed.messages);
-            }
-            
-            // Handle resource updates sent directly via WebSocket
-            if (typed.type === 'resource-update' && typed.name !== undefined) {
-              onResourceUpdateRef.current?.(typed.name, typed.value);
-            }
+            const msgs = (data as { messages: UIMessage[] }).messages;
+            onMessagesUpdateRef.current?.(msgs);
+          }
+
+          // Handle resource updates sent directly via WebSocket
+          if (
+            typeof data === 'object' &&
+            data !== null &&
+            'type' in data &&
+            (data as { type: string }).type === 'resource-update' &&
+            'name' in data
+          ) {
+            const typed = data as unknown as { name: string; value: unknown };
+            onResourceUpdateRef.current?.(typed.name, typed.value);
           }
         },
         onClose: () => {
-          console.log('[Socket] Transport closed');
-          hasConnectedRef.current = false;
+          console.log('[Socket] Connection closed');
         },
       }),
     [connectSocket],
@@ -194,7 +190,9 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
     onResourceUpdate: (name, value) => {
       onResourceUpdate?.(name, value);
     },
-    onFinish,
+    onFinish: () => {
+      onFinish?.();
+    },
     onError: (err: OctavusError) => {
       console.error('[Chat] Error:', {
         type: err.errorType,
@@ -206,22 +204,11 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
     },
   });
 
-  // Connect once when sessionId is available
+  // Connect when component mounts
   useEffect(() => {
-    if (sessionId && !hasConnectedRef.current && connect) {
-      hasConnectedRef.current = true;
-      console.log('[Socket] Initiating connection for session:', sessionId);
-      void connect();
-    }
-    
-    return () => {
-      if (hasConnectedRef.current) {
-        console.log('[Socket] Cleaning up connection');
-        disconnect?.();
-        hasConnectedRef.current = false;
-      }
-    };
-  }, [sessionId, connect, disconnect]);
+    void connect?.();
+    return () => disconnect?.();
+  }, [connect, disconnect]);
 
   const uploadFiles = useCallback(
     async (
