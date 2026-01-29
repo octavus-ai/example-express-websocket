@@ -7,78 +7,28 @@
  * 1. Client creates session via HTTP POST /api/sessions
  * 2. Client connects to WebSocket
  * 3. Client sends { type: 'connect', sessionId } to attach
- * 4. Client sends triggers or continue messages, receives streaming events
+ * 4. Client sends triggers, receives streaming events
  */
 
 import type { Connection } from 'sockjs';
-import {
-  createInternalErrorEvent,
-  type AgentSession,
-  type UIMessage,
-  type SessionRequest,
-  type StreamEvent,
-} from '@octavus/server-sdk';
+import type { AgentSession, SocketMessage } from '@octavus/server-sdk';
 import { octavusClient } from './client';
 import { tools, resources } from './assistant';
 
-/** Socket protocol messages */
-interface StopMessage {
-  type: 'stop';
-}
-
-interface ConnectMessage {
-  type: 'connect';
-  sessionId: string;
-}
-
-interface GetMessagesMessage {
-  type: 'get-messages';
-}
-
-type ClientMessage = SessionRequest | StopMessage | ConnectMessage | GetMessagesMessage;
-
-interface MessagesUpdateEvent {
-  type: 'messages-update';
-  messages: UIMessage[];
-}
-
-interface SessionContext {
-  session: AgentSession | null;
-  sessionId: string | null;
-  abortController: AbortController | null;
-}
-
-function isValidMessage(data: unknown): data is ClientMessage {
-  if (typeof data !== 'object' || data === null) {
-    return false;
-  }
-
-  const msg = data as Record<string, unknown>;
-
-  // Socket protocol messages
-  if (msg.type === 'connect' && typeof msg.sessionId === 'string') return true;
-  if (msg.type === 'stop') return true;
-  if (msg.type === 'get-messages') return true;
-
-  // Session requests (passed directly to session.execute())
-  if (msg.type === 'trigger' && typeof msg.triggerName === 'string') return true;
-  if (msg.type === 'continue' && typeof msg.executionId === 'string') return true;
-
-  return false;
-}
-
-function isSessionRequest(msg: ClientMessage): msg is SessionRequest {
-  return msg.type === 'trigger' || msg.type === 'continue';
-}
-
+/**
+ * Creates a SockJS connection handler for Octavus streaming.
+ */
 export function createSocketHandler(): (conn: Connection) => void {
   return (conn: Connection) => {
     console.log('[Socket] Client connected:', conn.id);
 
-    const context: SessionContext = {
-      session: null,
-      sessionId: null,
-      abortController: null,
+    // Per-connection state
+    let session: AgentSession | null = null;
+    let sessionId: string | null = null;
+
+    // Helper to send JSON to client
+    const send = (data: unknown) => {
+      conn.write(JSON.stringify(data));
     };
 
     conn.on('data', (rawData: string) => {
@@ -86,163 +36,108 @@ export function createSocketHandler(): (conn: Connection) => void {
     });
 
     async function handleMessage(rawData: string): Promise<void> {
+      let msg: unknown;
       try {
-        const data: unknown = JSON.parse(rawData);
-
-        if (!isValidMessage(data)) {
-          console.warn('[Socket] Invalid message:', data);
-          return;
-        }
-
-        if (data.type === 'connect') {
-          handleConnect(data.sessionId);
-          return;
-        }
-
-        if (data.type === 'stop') {
-          if (context.abortController) {
-            context.abortController.abort();
-            context.abortController = null;
-          }
-          return;
-        }
-
-        if (data.type === 'get-messages') {
-          await handleGetMessages();
-          return;
-        }
-
-        // Session requests (trigger or continue)
-        if (isSessionRequest(data)) {
-          await handleSessionRequest(data);
-        }
-      } catch (error) {
-        console.error('[Socket] Failed to handle message:', error);
-        const errorEvent = createInternalErrorEvent(
-          error instanceof Error ? error.message : 'Unknown error',
-        );
-        conn.write(JSON.stringify(errorEvent));
+        msg = JSON.parse(rawData);
+      } catch {
+        return; // Invalid JSON
       }
-    }
 
-    async function handleGetMessages(): Promise<void> {
-      if (!context.sessionId) {
-        const errorEvent = createInternalErrorEvent(
-          'Not connected to session. Send { type: "connect", sessionId } first.',
-        );
-        conn.write(JSON.stringify(errorEvent));
+      const msgObj = msg as Record<string, unknown>;
+
+      if (msgObj.type === 'connect' && typeof msgObj.sessionId === 'string') {
+        handleConnect(msgObj.sessionId);
         return;
       }
 
-      try {
-        const result = await octavusClient.agentSessions.getMessages(context.sessionId);
-
-        if (result.status === 'expired') {
-          conn.write(
-            JSON.stringify({
-              type: 'session-expired',
-              sessionId: context.sessionId,
-            }),
-          );
-          return;
-        }
-
-        const event: MessagesUpdateEvent = {
-          type: 'messages-update',
-          messages: result.messages,
-        };
-        conn.write(JSON.stringify(event));
-      } catch (error) {
-        console.error('[Socket] Failed to get messages:', error);
-        const errorEvent = createInternalErrorEvent(
-          error instanceof Error ? error.message : 'Failed to get messages',
-        );
-        conn.write(JSON.stringify(errorEvent));
-      }
-    }
-
-    function handleConnect(sessionId: string): void {
-      if (context.session) {
-        console.warn('[Socket] Already connected to session:', context.sessionId);
+      if (msgObj.type === 'get-messages') {
+        await handleGetMessages();
         return;
       }
 
-      context.sessionId = sessionId;
-      context.session = octavusClient.agentSessions.attach(sessionId, {
+      if (msgObj.type === 'trigger' || msgObj.type === 'continue' || msgObj.type === 'stop') {
+        if (!session) {
+          send({
+            type: 'error',
+            errorType: 'validation_error',
+            message: 'Not connected to session. Send { type: "connect", sessionId } first.',
+            source: 'platform',
+            retryable: false,
+          });
+          return;
+        }
+
+        await session.handleSocketMessage(msg as SocketMessage, {
+          onEvent: send,
+          onFinish: sendMessagesUpdate,
+        });
+      }
+    }
+
+    function handleConnect(newSessionId: string): void {
+      if (session) {
+        console.warn('[Socket] Already connected to session:', sessionId);
+        return;
+      }
+
+      sessionId = newSessionId;
+      session = octavusClient.agentSessions.attach(newSessionId, {
         tools,
         resources,
       });
 
-      conn.write(JSON.stringify({ type: 'connected', sessionId }));
-      console.log('[Socket] Attached to session:', sessionId);
+      send({ type: 'connected', sessionId: newSessionId });
+      console.log('[Socket] Attached to session:', newSessionId);
     }
 
-    /**
-     * Streams events to the client and fetches messages after completion.
-     */
-    async function streamToClient(events: AsyncGenerator<StreamEvent>): Promise<void> {
-      if (context.abortController) {
-        context.abortController.abort();
-      }
-      context.abortController = new AbortController();
-
-      try {
-        for await (const event of events) {
-          if (context.abortController.signal.aborted) {
-            break;
-          }
-          conn.write(JSON.stringify(event));
-        }
-
-        // Send updated messages for client persistence after streaming completes
-        if (!context.abortController?.signal.aborted && context.sessionId) {
-          try {
-            const result = await octavusClient.agentSessions.getMessages(context.sessionId);
-            if (result.status !== 'expired') {
-              const messagesEvent: MessagesUpdateEvent = {
-                type: 'messages-update',
-                messages: result.messages,
-              };
-              conn.write(JSON.stringify(messagesEvent));
-            }
-          } catch (err) {
-            console.warn('[Socket] Failed to fetch messages for persistence:', err);
-          }
-        }
-      } catch (error) {
-        if (context.abortController.signal.aborted) {
-          return;
-        }
-        throw error;
-      } finally {
-        context.abortController = null;
-      }
-    }
-
-    async function handleSessionRequest(req: SessionRequest): Promise<void> {
-      if (!context.session || !context.sessionId) {
-        const errorEvent = createInternalErrorEvent(
-          'Not connected to session. Send { type: "connect", sessionId } first.',
-        );
-        conn.write(JSON.stringify(errorEvent));
+    async function handleGetMessages(): Promise<void> {
+      if (!sessionId) {
+        send({
+          type: 'error',
+          errorType: 'validation_error',
+          message: 'Not connected to session. Send { type: "connect", sessionId } first.',
+          source: 'platform',
+          retryable: false,
+        });
         return;
       }
 
-      console.log('[Socket] Executing:', req.type, req);
+      try {
+        const result = await octavusClient.agentSessions.getMessages(sessionId);
 
-      // execute() handles both triggers and continuations
-      const events = context.session.execute(req, {
-        signal: context.abortController?.signal,
-      });
+        if (result.status === 'expired') {
+          send({ type: 'session-expired', sessionId });
+          return;
+        }
 
-      await streamToClient(events);
+        send({ type: 'messages-update', messages: result.messages });
+      } catch (error) {
+        console.error('[Socket] Failed to get messages:', error);
+        send({
+          type: 'error',
+          errorType: 'internal_error',
+          message: error instanceof Error ? error.message : 'Failed to get messages',
+          source: 'platform',
+          retryable: false,
+        });
+      }
+    }
+
+    async function sendMessagesUpdate(): Promise<void> {
+      if (!sessionId) return;
+
+      try {
+        const result = await octavusClient.agentSessions.getMessages(sessionId);
+        if (result.status !== 'expired') {
+          send({ type: 'messages-update', messages: result.messages });
+        }
+      } catch (err) {
+        console.warn('[Socket] Failed to fetch messages for persistence:', err);
+      }
     }
 
     conn.on('close', () => {
       console.log('[Socket] Client disconnected:', conn.id);
-      if (context.abortController) {
-        context.abortController.abort();
-      }
     });
   };
 }

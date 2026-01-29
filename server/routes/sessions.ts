@@ -46,6 +46,42 @@ sessionsRouter.post('/', async (req, res) => {
 });
 
 /**
+ * GET /api/sessions/:sessionId - Get session status and messages
+ *
+ * Response:
+ * {
+ *   status: 'active' | 'expired' | 'not_found',
+ *   sessionId?: string,
+ *   messages?: UIMessage[]
+ * }
+ */
+sessionsRouter.get('/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const client = getOctavusClient();
+
+    const result = await client.agentSessions.getMessages(sessionId);
+
+    res.json({
+      status: result.status === 'expired' ? 'expired' : 'active',
+      sessionId: result.sessionId,
+      agentId: result.agentId,
+      messages: result.messages,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('not found')) {
+      res.json({ status: 'not_found' });
+      return;
+    }
+
+    console.error('Failed to get session:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to get session',
+    });
+  }
+});
+
+/**
  * POST /api/sessions/:sessionId/restore - Restore an expired session
  *
  * Request body:
@@ -83,47 +119,6 @@ sessionsRouter.post('/:sessionId/restore', async (req, res) => {
     console.error('Failed to restore session:', error);
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Failed to restore session',
-    });
-  }
-});
-
-/**
- * GET /api/sessions/:sessionId/status - Check session status
- *
- * Response:
- * {
- *   status: 'active' | 'expired' | 'not_found'
- * }
- */
-sessionsRouter.get('/:sessionId/status', async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    const client = getOctavusClient();
-
-    const result = await client.agentSessions.getMessages(sessionId);
-
-    if (result.status === 'expired') {
-      res.json({
-        status: 'expired',
-        sessionId: result.sessionId,
-        agentId: result.agentId,
-      });
-    } else {
-      res.json({
-        status: 'active',
-        sessionId: result.sessionId,
-        agentId: result.agentId,
-      });
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('not found')) {
-      res.json({ status: 'not_found' });
-      return;
-    }
-
-    console.error('Failed to check session status:', error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : 'Failed to check session status',
     });
   }
 });

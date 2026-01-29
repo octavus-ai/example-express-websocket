@@ -7,6 +7,7 @@ import {
   isProviderError,
   type FileReference,
   type OctavusError,
+  type UIMessage,
 } from '@octavus/react';
 
 import { cn } from '@/lib/utils';
@@ -33,9 +34,15 @@ interface PendingFile {
 
 export interface ChatInterfaceProps {
   sessionId: string;
+  initialMessages?: UIMessage[];
+  onMessagesUpdate?: (messages: UIMessage[]) => void;
 }
 
-export function ChatInterface({ sessionId }: ChatInterfaceProps) {
+export function ChatInterface({
+  sessionId,
+  initialMessages,
+  onMessagesUpdate,
+}: ChatInterfaceProps) {
   const [inputValue, setInputValue] = useState('');
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(false);
@@ -80,7 +87,9 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const { messages, status, error, send, stop, uploadFiles, pendingClientTools } = useOctavusSocket(
     {
       sessionId,
+      initialMessages,
       onResourceUpdate: handleResourceUpdate,
+      onMessagesUpdate,
       onFinish: handleFinish,
       onError: handleError,
     },
@@ -222,10 +231,15 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
             <div className="flex items-center gap-3">
               <img src="/octo.png" alt="Octavus" width={24} height={24} />
               <span className="font-medium text-foreground">Octavus Chat</span>
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <a
+                href={`${import.meta.env.VITE_OCTAVUS_PLATFORM_URL || 'https://octavus.ai'}/sessions/${sessionId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              >
                 <span>{sessionId.slice(0, 8)}...</span>
                 <ExternalLink className="h-3 w-3" />
-              </span>
+              </a>
             </div>
             <div
               className={cn(
