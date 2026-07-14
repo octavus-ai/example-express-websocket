@@ -10,7 +10,7 @@ A chat application demonstrating Octavus integration with Express and WebSocket 
 - QR code generation via skills
 - Image generation and file uploads
 - Auto-generate chat title, summary, and cover image
-- Resource synchronization (sidebar updates)
+- Chat metadata sync to the sidebar via a client tool
 - Session management
 
 ## Quick Start
@@ -104,7 +104,7 @@ example-express-websocket/
 │   ├── config.ts              # Environment configuration
 │   ├── octavus/
 │   │   ├── client.ts          # OctavusClient factory
-│   │   ├── assistant.ts       # Tool & resource handlers
+│   │   ├── assistant.ts       # Tool handlers
 │   │   └── socket-handler.ts  # WebSocket message handling
 │   └── routes/
 │       ├── sessions.ts        # Session management API

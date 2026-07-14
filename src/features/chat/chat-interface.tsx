@@ -62,19 +62,12 @@ export function ChatInterface({
     return `pending-${fileIdCounter.current}`;
   };
 
-  const handleResourceUpdate = useCallback((name: string, value: unknown) => {
-    switch (name) {
-      case 'CHAT_TITLE':
-        setChatMetadata((prev) => ({ ...prev, title: value as string }));
-        break;
-      case 'CHAT_SUMMARY':
-        setChatMetadata((prev) => ({ ...prev, summary: value as string }));
-        break;
-      case 'CHAT_IMAGE':
-        setChatMetadata((prev) => ({ ...prev, image: value as string }));
-        break;
-    }
-  }, []);
+  const handleMetadata = useCallback(
+    (metadata: { title: string; summary: string; image: string }) => {
+      setChatMetadata(metadata);
+    },
+    [],
+  );
 
   const handleFinish = useCallback(() => {
     setIsGeneratingMetadata(false);
@@ -88,7 +81,7 @@ export function ChatInterface({
     {
       sessionId,
       initialMessages,
-      onResourceUpdate: handleResourceUpdate,
+      onMetadata: handleMetadata,
       onMessagesUpdate,
       onFinish: handleFinish,
       onError: handleError,

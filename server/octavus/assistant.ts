@@ -1,49 +1,14 @@
 /**
- * Assistant Agent - Tools & Resources
+ * Assistant Agent - Tools
  *
  * Tools defined in the agent protocol are implemented here.
  * These run on your server when the agent calls them.
  *
- * Resources receive updates when the agent sets resource values.
+ * Note: `set-chat-metadata` has no server handler - it is a client tool, so
+ * unhandled calls are forwarded to the browser (see the chat UI).
  */
 
-import { Resource, type ToolHandlers } from '@octavus/server-sdk';
-
-/**
- * Resource Handlers
- *
- * Resources sync state from the agent to your server.
- * Use these to persist data, trigger side effects, etc.
- */
-class ChatTitleResource extends Resource {
-  readonly name = 'CHAT_TITLE';
-
-  onUpdate(value: unknown): void {
-    console.log(`[Resource] CHAT_TITLE updated:`, value);
-  }
-}
-
-class ChatSummaryResource extends Resource {
-  readonly name = 'CHAT_SUMMARY';
-
-  onUpdate(value: unknown): void {
-    console.log(`[Resource] CHAT_SUMMARY updated:`, value);
-  }
-}
-
-class ChatImageResource extends Resource {
-  readonly name = 'CHAT_IMAGE';
-
-  onUpdate(value: unknown): void {
-    console.log(`[Resource] CHAT_IMAGE updated:`, value);
-  }
-}
-
-export const resources = [
-  new ChatTitleResource(),
-  new ChatSummaryResource(),
-  new ChatImageResource(),
-];
+import type { ToolHandlers } from '@octavus/server-sdk';
 
 export const tools: ToolHandlers = {
   'get-current-time': async (args) => {

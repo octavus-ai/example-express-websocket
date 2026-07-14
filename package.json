@@ -16,8 +16,8 @@
     "agents:sync": "dotenv -- octavus sync ./octavus-agents/assistant"
   },
   "dependencies": {
-    "@octavus/react": "^2.1.0",
-    "@octavus/server-sdk": "^2.1.0",
+    "@octavus/react": "^6.1.0",
+    "@octavus/server-sdk": "^6.1.0",
     "clsx": "^2.1.1",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
-    "@octavus/cli": "^2.1.0",
+    "@octavus/cli": "^6.1.0",
     "@tailwindcss/postcss": "^4.1.18",
     "@tailwindcss/typography": "^0.5.19",
     "@types/cors": "^2.8.19",

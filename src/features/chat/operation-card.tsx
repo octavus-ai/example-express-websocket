@@ -6,7 +6,7 @@ interface OperationCardProps {
 }
 
 /**
- * Displays internal Octavus operations like set-resource, serialize-thread.
+ * Displays internal Octavus operations like serialize-thread.
  * Shows status indicator with the operation name.
  */
 export function OperationCard({ operation }: OperationCardProps) {

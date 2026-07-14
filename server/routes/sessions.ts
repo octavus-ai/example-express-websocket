@@ -62,8 +62,17 @@ sessionsRouter.get('/:sessionId', async (req, res) => {
 
     const result = await client.agentSessions.getMessages(sessionId);
 
+    if (result.status === 'expired') {
+      res.json({
+        status: 'expired',
+        sessionId: result.sessionId,
+        agentId: result.agentId,
+      });
+      return;
+    }
+
     res.json({
-      status: result.status === 'expired' ? 'expired' : 'active',
+      status: 'active',
       sessionId: result.sessionId,
       agentId: result.agentId,
       messages: result.messages,

@@ -13,7 +13,7 @@
 import type { Connection } from 'sockjs';
 import type { AgentSession, SocketMessage } from '@octavus/server-sdk';
 import { octavusClient } from './client';
-import { tools, resources } from './assistant';
+import { tools } from './assistant';
 
 /**
  * Creates a SockJS connection handler for Octavus streaming.
@@ -83,7 +83,6 @@ export function createSocketHandler(): (conn: Connection) => void {
       sessionId = newSessionId;
       session = octavusClient.agentSessions.attach(newSessionId, {
         tools,
-        resources,
       });
 
       send({ type: 'connected', sessionId: newSessionId });

@@ -9,24 +9,6 @@ input:
     optional: true
     default: ""
 
-# Resources - synced to client UI (sidebar)
-# These persist and can be saved by the consumer for session restore
-resources:
-  CHAT_TITLE:
-    type: string
-    description: Auto-generated title for the chat
-    default: "New Chat"
-
-  CHAT_SUMMARY:
-    type: string
-    description: Summary of the conversation
-    default: ""
-
-  CHAT_IMAGE:
-    type: string
-    description: Generated cover image URL for the chat
-    default: ""
-
 # Internal variables
 variables:
   CONVERSATION_TEXT:
@@ -39,6 +21,8 @@ variables:
     type: string
   GENERATED_IMAGE_URL:
     type: string
+  METADATA_SAVED:
+    type: unknown
 
 # Triggers
 triggers:
@@ -88,6 +72,18 @@ tools:
         description: Whether to show comment input
         optional: true
 
+  # Client-side tool: with no server handler registered, its calls are forwarded
+  # to the browser, which updates the chat sidebar.
+  set-chat-metadata:
+    description: Save the generated chat title, summary, and cover image to the UI
+    parameters:
+      title:
+        type: string
+      summary:
+        type: string
+      image:
+        type: string
+
 # Octavus skill - code execution
 skills:
   qr-code:
@@ -129,7 +125,7 @@ handlers:
     Respond:
       block: next-message
 
-  # Generate metadata - demonstrates threads, resources, and image generation
+  # Generate metadata - demonstrates threads, client tools, and image generation
   generate-metadata:
     Serialize conversation:
       block: serialize-thread
@@ -159,12 +155,6 @@ handlers:
       independent: true
       output: GENERATED_SUMMARY
 
-    Save summary:
-      block: set-resource
-      resource: CHAT_SUMMARY
-      value: GENERATED_SUMMARY
-      display: name
-
     # Generate title
     Add title request:
       block: add-message
@@ -181,12 +171,6 @@ handlers:
       display: stream
       independent: true
       output: GENERATED_TITLE
-
-    Save title:
-      block: set-resource
-      resource: CHAT_TITLE
-      value: GENERATED_TITLE
-      display: name
 
     # Generate image prompt
     Add image prompt request:
@@ -214,8 +198,13 @@ handlers:
       output: GENERATED_IMAGE_URL
       description: Generating cover image
 
-    Save image:
-      block: set-resource
-      resource: CHAT_IMAGE
-      value: GENERATED_IMAGE_URL
-      display: name
+    # Save all generated metadata to the UI via a client tool
+    Save metadata:
+      block: tool-call
+      tool: set-chat-metadata
+      input:
+        title: GENERATED_TITLE
+        summary: GENERATED_SUMMARY
+        image: GENERATED_IMAGE_URL
+      output: METADATA_SAVED
+      display: hidden

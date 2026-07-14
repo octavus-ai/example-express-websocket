@@ -30,8 +30,8 @@ export interface UseOctavusSocketOptions {
   sessionId: string;
   /** Initial messages to display (loaded from server) */
   initialMessages?: UIMessage[];
-  /** Callback when resource values are updated */
-  onResourceUpdate?: (name: string, value: unknown) => void;
+  /** Callback when the agent pushes chat metadata (title, summary, cover image) */
+  onMetadata?: (metadata: { title: string; summary: string; image: string }) => void;
   /** Callback when messages are updated (for persistence) */
   onMessagesUpdate?: (messages: UIMessage[]) => void;
   /** Callback when streaming finishes */
@@ -59,23 +59,23 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
   const {
     sessionId,
     initialMessages,
-    onResourceUpdate,
+    onMetadata,
     onMessagesUpdate,
     onFinish,
     onError,
   } = options;
 
-  // Refs for callbacks to avoid stale closures in socket handler
+  // Refs for callbacks to avoid stale closures in the socket handler / client tools
   const onMessagesUpdateRef = useRef(onMessagesUpdate);
-  const onResourceUpdateRef = useRef(onResourceUpdate);
+  const onMetadataRef = useRef(onMetadata);
 
   useEffect(() => {
     onMessagesUpdateRef.current = onMessagesUpdate;
   }, [onMessagesUpdate]);
 
   useEffect(() => {
-    onResourceUpdateRef.current = onResourceUpdate;
-  }, [onResourceUpdate]);
+    onMetadataRef.current = onMetadata;
+  }, [onMetadata]);
 
   // Connect function - sessionId is required (validated by REST API before this hook runs)
   const connectSocket = useCallback((): Promise<SocketLike> => {
@@ -111,18 +111,6 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
           ) {
             const msgs = (data as { messages: UIMessage[] }).messages;
             onMessagesUpdateRef.current?.(msgs);
-          }
-
-          // Handle resource updates sent directly via WebSocket
-          if (
-            typeof data === 'object' &&
-            data !== null &&
-            'type' in data &&
-            (data as { type: string }).type === 'resource-update' &&
-            'name' in data
-          ) {
-            const typed = data as unknown as { name: string; value: unknown };
-            onResourceUpdateRef.current?.(typed.name, typed.value);
           }
         },
         onClose: () => {
@@ -166,6 +154,17 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
           screenHeight: window.screen.height,
           colorDepth: window.screen.colorDepth,
         }),
+
+      // Automatic: pushes the generated title, summary, and cover image into
+      // the sidebar.
+      'set-chat-metadata': (args) => {
+        onMetadataRef.current?.({
+          title: (args.title as string) || 'New Chat',
+          summary: (args.summary as string) || '',
+          image: (args.image as string) || '',
+        });
+        return Promise.resolve({ saved: true });
+      },
     }),
     [],
   );
@@ -187,9 +186,6 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
     initialMessages,
     requestUploadUrls,
     clientTools,
-    onResourceUpdate: (name, value) => {
-      onResourceUpdate?.(name, value);
-    },
     onFinish: () => {
       onFinish?.();
     },
