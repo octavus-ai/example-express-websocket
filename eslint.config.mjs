@@ -1,10 +1,11 @@
+import { defineConfig, globalIgnores } from 'eslint/config';
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
-export default tseslint.config(
-  { ignores: ['dist'] },
+export default defineConfig(
+  globalIgnores(['dist']),
   {
-    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    extends: [js.configs.recommended, tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],

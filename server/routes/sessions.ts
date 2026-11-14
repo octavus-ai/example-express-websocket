@@ -2,12 +2,12 @@
  * Sessions API Route
  *
  * Creates agent sessions before WebSocket connection.
- * The sessionId is used to connect via WebSocket and for file uploads.
+ * The sessionId is used to connect via WebSocket.
  */
 
 import { Router } from 'express';
-import type { UIMessage } from '@octavus/server-sdk';
-import { getOctavusClient } from '../octavus/client';
+import { isNotFoundError, type UIMessage } from '@octavus/server-sdk';
+import { getOctavusClient, sendErrorResponse } from '../octavus/client';
 import { getAgentId } from '../config';
 
 export const sessionsRouter = Router();
@@ -29,19 +29,14 @@ sessionsRouter.post('/', async (req, res) => {
   try {
     const { userName = '' } = req.body as { userName?: string };
 
-    const client = getOctavusClient();
-    const agentId = getAgentId();
-
-    const sessionId = await client.agentSessions.create(agentId, {
+    const { id: sessionId } = await getOctavusClient().sessions.create(getAgentId(), {
       USER_NAME: userName,
     });
 
     res.json({ sessionId });
   } catch (error) {
     console.error('Failed to create session:', error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : 'Failed to create session',
-    });
+    sendErrorResponse(res, error, 'Failed to create session');
   }
 });
 
@@ -52,7 +47,8 @@ sessionsRouter.post('/', async (req, res) => {
  * {
  *   status: 'active' | 'expired' | 'not_found',
  *   sessionId?: string,
- *   messages?: UIMessage[]
+ *   agentId?: string,
+ *   messages?: UIMessage[] // empty once the session expired
  * }
  */
 sessionsRouter.get('/:sessionId', async (req, res) => {
@@ -60,33 +56,25 @@ sessionsRouter.get('/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     const client = getOctavusClient();
 
-    const result = await client.agentSessions.getMessages(sessionId);
-
-    if (result.status === 'expired') {
-      res.json({
-        status: 'expired',
-        sessionId: result.sessionId,
-        agentId: result.agentId,
-      });
-      return;
-    }
+    const [session, messages] = await Promise.all([
+      client.sessions.get(sessionId),
+      client.sessions.getMessages(sessionId),
+    ]);
 
     res.json({
-      status: 'active',
-      sessionId: result.sessionId,
-      agentId: result.agentId,
-      messages: result.messages,
+      status: session.status,
+      sessionId: session.id,
+      agentId: session.agentId,
+      messages,
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes('not found')) {
+    if (isNotFoundError(error)) {
       res.json({ status: 'not_found' });
       return;
     }
 
     console.error('Failed to get session:', error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : 'Failed to get session',
-    });
+    sendErrorResponse(res, error, 'Failed to get session');
   }
 });
 
@@ -102,7 +90,7 @@ sessionsRouter.get('/:sessionId', async (req, res) => {
  * Response:
  * {
  *   sessionId: string,
- *   restored: boolean
+ *   status: 'active' | 'expired'
  * }
  */
 sessionsRouter.post('/:sessionId/restore', async (req, res) => {
@@ -118,16 +106,13 @@ sessionsRouter.post('/:sessionId/restore', async (req, res) => {
       return;
     }
 
-    const client = getOctavusClient();
-    const result = await client.agentSessions.restore(sessionId, messages, {
+    const session = await getOctavusClient().sessions.restoreFromMessages(sessionId, messages, {
       USER_NAME: userName,
     });
 
-    res.json(result);
+    res.json({ sessionId: session.id, status: session.status });
   } catch (error) {
     console.error('Failed to restore session:', error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : 'Failed to restore session',
-    });
+    sendErrorResponse(res, error, 'Failed to restore session');
   }
 });

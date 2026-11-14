@@ -1,5 +1,7 @@
+import { DEFAULT_BASE_URL } from '@octavus/server-sdk';
+
 export function getOctavusPlatformUrl(): string {
-  return process.env.OCTAVUS_API_URL ?? 'https://octavus.ai';
+  return process.env.OCTAVUS_API_URL ?? DEFAULT_BASE_URL;
 }
 
 export function getOctavusApiKey(): string {

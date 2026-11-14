@@ -1,13 +1,19 @@
 import { useParams, Navigate, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
-import type { UIMessage } from '@octavus/react';
+import { OctavusError, type UIMessage } from '@octavus/react';
 import { ChatInterface } from './chat-interface';
 
 interface SessionData {
   status: 'active' | 'expired' | 'not_found';
   sessionId?: string;
+  /** Empty once the session expired */
   messages?: UIMessage[];
+}
+
+interface RestoreResult {
+  sessionId: string;
+  status: 'active' | 'expired';
 }
 
 type PageState =
@@ -22,7 +28,8 @@ type PageState =
 async function fetchSession(sessionId: string): Promise<SessionData> {
   const response = await fetch(`/api/sessions/${sessionId}`);
   if (!response.ok) {
-    throw new Error('Failed to fetch session');
+    const body: unknown = await response.json().catch(() => undefined);
+    throw OctavusError.fromApiResponse(response.status, body, 'Failed to fetch session');
   }
   return response.json();
 }
@@ -30,17 +37,15 @@ async function fetchSession(sessionId: string): Promise<SessionData> {
 /**
  * Restore an expired session
  */
-async function restoreSession(
-  sessionId: string,
-  messages: UIMessage[],
-): Promise<{ restored: boolean }> {
+async function restoreSession(sessionId: string, messages: UIMessage[]): Promise<RestoreResult> {
   const response = await fetch(`/api/sessions/${sessionId}/restore`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages }),
   });
   if (!response.ok) {
-    throw new Error('Failed to restore session');
+    const body: unknown = await response.json().catch(() => undefined);
+    throw OctavusError.fromApiResponse(response.status, body, 'Failed to restore session');
   }
   return response.json();
 }
@@ -105,7 +110,7 @@ export function ChatPage() {
             console.log('[Session] Restoring expired session with messages');
             const result = await restoreSession(currentSessionId, messagesToRestore);
 
-            if (result.restored) {
+            if (result.status === 'active') {
               setPageState({ type: 'ready', messages: messagesToRestore });
               return;
             }

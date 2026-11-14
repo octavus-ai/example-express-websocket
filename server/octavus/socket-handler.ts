@@ -11,9 +11,16 @@
  */
 
 import type { Connection } from 'sockjs';
-import type { AgentSession, SocketMessage } from '@octavus/server-sdk';
-import { octavusClient } from './client';
+import { OctavusError, type AgentSession, type SocketMessage } from '@octavus/server-sdk';
+import { getOctavusClient } from './client';
 import { tools } from './assistant';
+
+const NOT_CONNECTED_EVENT = new OctavusError({
+  errorType: 'validation_error',
+  message: 'Not connected to session. Send { type: "connect", sessionId } first.',
+  source: 'platform',
+  retryable: false,
+}).toEvent();
 
 /**
  * Creates a SockJS connection handler for Octavus streaming.
@@ -57,13 +64,7 @@ export function createSocketHandler(): (conn: Connection) => void {
 
       if (msgObj.type === 'trigger' || msgObj.type === 'continue' || msgObj.type === 'stop') {
         if (!session) {
-          send({
-            type: 'error',
-            errorType: 'validation_error',
-            message: 'Not connected to session. Send { type: "connect", sessionId } first.',
-            source: 'platform',
-            retryable: false,
-          });
+          send(NOT_CONNECTED_EVENT);
           return;
         }
 
@@ -81,7 +82,7 @@ export function createSocketHandler(): (conn: Connection) => void {
       }
 
       sessionId = newSessionId;
-      session = octavusClient.agentSessions.attach(newSessionId, {
+      session = getOctavusClient().sessions.attach(newSessionId, {
         tools,
       });
 
@@ -91,34 +92,27 @@ export function createSocketHandler(): (conn: Connection) => void {
 
     async function handleGetMessages(): Promise<void> {
       if (!sessionId) {
-        send({
-          type: 'error',
-          errorType: 'validation_error',
-          message: 'Not connected to session. Send { type: "connect", sessionId } first.',
-          source: 'platform',
-          retryable: false,
-        });
+        send(NOT_CONNECTED_EVENT);
         return;
       }
 
       try {
-        const result = await octavusClient.agentSessions.getMessages(sessionId);
+        const client = getOctavusClient();
+        const current = await client.sessions.get(sessionId);
 
-        if (result.status === 'expired') {
+        if (current.status === 'expired') {
           send({ type: 'session-expired', sessionId });
           return;
         }
 
-        send({ type: 'messages-update', messages: result.messages });
+        const messages = await client.sessions.getMessages(sessionId);
+        send({ type: 'messages-update', messages });
       } catch (error) {
         console.error('[Socket] Failed to get messages:', error);
-        send({
-          type: 'error',
-          errorType: 'internal_error',
-          message: error instanceof Error ? error.message : 'Failed to get messages',
-          source: 'platform',
-          retryable: false,
-        });
+        const octavusError = OctavusError.isInstance(error)
+          ? error
+          : OctavusError.internal('Failed to get messages', { cause: error });
+        send(octavusError.toEvent());
       }
     }
 
@@ -126,9 +120,10 @@ export function createSocketHandler(): (conn: Connection) => void {
       if (!sessionId) return;
 
       try {
-        const result = await octavusClient.agentSessions.getMessages(sessionId);
-        if (result.status !== 'expired') {
-          send({ type: 'messages-update', messages: result.messages });
+        // An expired session has no messages, so there is nothing to persist
+        const messages = await getOctavusClient().sessions.getMessages(sessionId);
+        if (messages.length > 0) {
+          send({ type: 'messages-update', messages });
         }
       } catch (err) {
         console.warn('[Socket] Failed to fetch messages for persistence:', err);
