@@ -1,13 +1,13 @@
 import { Check, Loader2, Settings2 } from 'lucide-react';
-import type { UIOperationPart } from '@octavus/react';
+import { getPartLabel, type UIOperationPart } from '@octavus/react';
 
 interface OperationCardProps {
   operation: UIOperationPart;
 }
 
 /**
- * Displays internal Octavus operations like serialize-thread.
- * Shows status indicator with the operation name.
+ * Displays Octavus operations like generate-image.
+ * Shows status indicator with the operation's label (its authored title, else its block name).
  */
 export function OperationCard({ operation }: OperationCardProps) {
   const isRunning = operation.status === 'running';
@@ -19,7 +19,7 @@ export function OperationCard({ operation }: OperationCardProps) {
         <Settings2
           className={`h-4 w-4 text-muted-foreground ${isRunning ? 'animate-pulse' : ''}`}
         />
-        <span className="text-muted-foreground">{operation.name}</span>
+        <span className="text-muted-foreground">{getPartLabel(operation)}</span>
         {isCancelled && <span className="text-amber-400">(cancelled)</span>}
         <div className="ml-auto">
           {isRunning && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}

@@ -8,11 +8,11 @@ import {
   FileText,
   Check,
   ExternalLink,
-  Search,
   Wrench,
   Loader2,
 } from 'lucide-react';
 import {
+  getPartLabel,
   isOtherThread,
   type UIMessage,
   type UIMessagePart,
@@ -248,18 +248,13 @@ function ReasoningPartView({ part, isFirst }: { part: UIReasoningPart; isFirst: 
 }
 
 function ToolCallPartView({ part, isFirst }: { part: UIToolCallPart; isFirst: boolean }) {
-  const displayText = part.displayName || part.toolName;
   const isRunning = part.status === 'pending' || part.status === 'running';
-
-  const IconComponent = part.toolName === 'web-search' ? Search : Wrench;
 
   return (
     <div className={`${isFirst ? '' : 'mt-2'} mb-2`}>
       <div className="flex items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-sm">
-        <IconComponent
-          className={`h-4 w-4 text-muted-foreground ${isRunning ? 'animate-pulse' : ''}`}
-        />
-        <span className="text-muted-foreground">{displayText}</span>
+        <Wrench className={`h-4 w-4 text-muted-foreground ${isRunning ? 'animate-pulse' : ''}`} />
+        <span className="text-muted-foreground">{getPartLabel(part)}</span>
         {part.status === 'cancelled' && (
           <span className="text-sm text-amber-400">(cancelled)</span>
         )}
@@ -289,7 +284,7 @@ function OperationPartView({ part, isFirst }: { part: UIOperationPart; isFirst: 
 
 function SourcePartView({ part, isFirst }: { part: UISourcePart; isFirst: boolean }) {
   if (part.sourceType === 'url') {
-    let domain = '';
+    let domain: string;
     try {
       domain = new URL(part.url).hostname.replace('www.', '');
     } catch {
@@ -433,7 +428,7 @@ function OtherThreadToolCallView({ part, isFirst }: { part: UIToolCallPart; isFi
         <div className="flex items-center gap-2 px-3 py-2">
           <Wrench className={`h-4 w-4 text-amber-400 ${isRunning ? 'animate-pulse' : ''}`} />
           <span className="text-sm font-medium text-amber-400">
-            {part.thread}: {part.displayName ?? part.toolName}
+            {`${part.thread}: ${getPartLabel(part)}`}
           </span>
           <div className="ml-auto">
             {part.status === 'done' && <Check className="h-4 w-4 text-teal-400" />}

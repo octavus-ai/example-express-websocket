@@ -1,8 +1,19 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Paperclip, X, Loader2, AlertCircle, Square, Send, ExternalLink } from 'lucide-react';
+import {
+  Paperclip,
+  X,
+  Loader2,
+  AlertCircle,
+  Square,
+  Send,
+  ExternalLink,
+  RotateCcw,
+} from 'lucide-react';
 import { z } from 'zod';
 import {
+  useAutoScroll,
   isRateLimitError,
+  isQuotaExceededError,
   isAuthenticationError,
   isProviderError,
   type FileReference,
@@ -52,7 +63,6 @@ export function ChatInterface({
     image: '',
   });
 
-  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileIdCounter = useRef(0);
@@ -77,16 +87,26 @@ export function ChatInterface({
     setIsGeneratingMetadata(false);
   }, []);
 
-  const { messages, status, error, send, stop, uploadFiles, pendingClientTools } = useOctavusSocket(
-    {
+  const { messages, status, error, send, stop, retry, canRetry, uploadFiles, pendingClientTools } =
+    useOctavusSocket({
       sessionId,
       initialMessages,
       onMetadata: handleMetadata,
       onMessagesUpdate,
       onFinish: handleFinish,
       onError: handleError,
-    },
-  );
+    });
+
+  const {
+    scrollRef,
+    contentRef,
+    handleScroll,
+    handleWheel,
+    handleTouchStart,
+    handleTouchMove,
+    scrollOnUpdate,
+    resetAutoScroll,
+  } = useAutoScroll();
 
   const isStreaming = status === 'streaming';
   const isAwaitingInput = status === 'awaiting-input';
@@ -106,15 +126,11 @@ export function ChatInterface({
   // For simplicity, handle first pending feedback tool (multiple can be supported by mapping)
   const feedbackTool = feedbackTools[0] ?? null;
 
+  // Follow new content unless the user has scrolled up to read
   useEffect(() => {
-    const scrollToBottom = () => {
-      if (scrollRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      }
-    };
-    const frameId = requestAnimationFrame(scrollToBottom);
+    const frameId = requestAnimationFrame(scrollOnUpdate);
     return () => cancelAnimationFrame(frameId);
-  }, [messages]);
+  }, [messages, scrollOnUpdate]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -137,6 +153,7 @@ export function ChatInterface({
     const message = inputValue;
     setInputValue('');
     setPendingFiles([]);
+    resetAutoScroll();
 
     await send(
       'user-message',
@@ -248,8 +265,15 @@ export function ChatInterface({
         </header>
 
         {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4">
-          <div className="mx-auto max-w-4xl py-6">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          onWheel={handleWheel}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          className="flex-1 overflow-y-auto px-4"
+        >
+          <div ref={contentRef} className="mx-auto max-w-4xl py-6">
             {messages.length === 0 && (
               <div className="py-12 text-center text-muted-foreground">
                 <p className="text-lg">Start a conversation</p>
@@ -272,6 +296,7 @@ export function ChatInterface({
                     <p className="text-sm font-medium text-red-400">
                       {(() => {
                         if (isRateLimitError(error)) return 'Service is temporarily busy';
+                        if (isQuotaExceededError(error)) return 'Usage limit reached';
                         if (isAuthenticationError(error)) return 'Service configuration error';
                         if (isProviderError(error)) return 'AI service temporarily unavailable';
                         return 'Something went wrong';
@@ -285,6 +310,16 @@ export function ChatInterface({
                       </p>
                     )}
                   </div>
+                  {canRetry && (
+                    <button
+                      type="button"
+                      onClick={() => void retry()}
+                      className="flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/20"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>Retry</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}

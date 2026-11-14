@@ -15,12 +15,12 @@ import SockJS from 'sockjs-client';
 import {
   useOctavusChat,
   createSocketTransport,
+  OctavusError,
   type SocketLike,
   type ConnectionState,
   type FileReference,
   type UploadUrlsResponse,
   type UIMessage,
-  type OctavusError,
   type ClientToolHandler,
   type InteractiveTool,
 } from '@octavus/react';
@@ -46,6 +46,8 @@ interface UseOctavusSocketReturn {
   error: ReturnType<typeof useOctavusChat>['error'];
   send: ReturnType<typeof useOctavusChat>['send'];
   stop: () => void;
+  retry: ReturnType<typeof useOctavusChat>['retry'];
+  canRetry: ReturnType<typeof useOctavusChat>['canRetry'];
   connectionState: ConnectionState | undefined;
   connectionError: Error | undefined;
   uploadFiles: (
@@ -127,14 +129,15 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
       const response = await fetch('/api/upload-urls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, files }),
+        body: JSON.stringify({ files }),
       });
       if (!response.ok) {
-        throw new Error('Failed to get upload URLs');
+        const body: unknown = await response.json().catch(() => undefined);
+        throw OctavusError.fromApiResponse(response.status, body, 'Failed to get upload URLs');
       }
       return await (response.json() as Promise<UploadUrlsResponse>);
     },
-    [sessionId],
+    [],
   );
 
   // Define client-side tools
@@ -175,6 +178,8 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
     error,
     send,
     stop,
+    retry,
+    canRetry,
     connectionState,
     connectionError,
     connect,
@@ -186,6 +191,8 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
     initialMessages,
     requestUploadUrls,
     clientTools,
+    // Render provider bursts as steady typing
+    textSmoothing: true,
     onFinish: () => {
       onFinish?.();
     },
@@ -194,7 +201,9 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
         type: err.errorType,
         message: err.message,
         source: err.source,
+        code: err.code,
         retryable: err.retryable,
+        requestId: err.requestId,
       });
       onError?.(err);
     },
@@ -222,6 +231,8 @@ export function useOctavusSocket(options: UseOctavusSocketOptions): UseOctavusSo
     error,
     send,
     stop,
+    retry,
+    canRetry,
     connectionState,
     connectionError,
     uploadFiles,

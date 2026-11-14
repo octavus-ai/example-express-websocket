@@ -17,7 +17,7 @@ A chat application demonstrating Octavus integration with Express and WebSocket 
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - Octavus account with API keys
 
 ### Setup
@@ -45,8 +45,9 @@ A chat application demonstrating Octavus integration with Express and WebSocket 
    OCTAVUS_CLI_API_KEY=your-cli-api-key
    ```
 
-4. Sync the agent:
+4. Validate and sync the agent:
    ```bash
+   npm run agents:validate
    npm run agents:sync
    ```
 
@@ -72,28 +73,46 @@ Browser (React/Vite) <--SockJS--> Express Server <--HTTP--> Octavus Platform
 - **Server**: Express + SockJS with `@octavus/server-sdk`
 - **Transport**: SockJS for bidirectional WebSocket communication
 
+## Octavus Integration
+
+The server (`@octavus/server-sdk`):
+
+- Creates sessions with `client.sessions.create()` and attaches tool handlers with `client.sessions.attach()`
+- Handles `trigger`, `continue`, and `stop` socket messages with `session.handleSocketMessage()`
+- Reads a session's status with `client.sessions.get()` and its conversation with `client.sessions.getMessages()`
+- Restores an expired session from the browser's stored messages with `client.sessions.restoreFromMessages()`
+- Creates upload URLs with `client.files.create()` (files belong to the project, so no session is needed)
+- Sends its own failures to the browser as `OctavusError` events
+
+The client (`@octavus/react`):
+
+- `useOctavusChat` with `createSocketTransport`, smoothed text streaming, and `retry()`
+- `useAutoScroll` to follow new content unless the user scrolls up
+- `getPartLabel` to label tool and operation cards (the authored `title`, else the tool or block name)
+
 ## Environment Variables
 
-| Variable              | Description                          | Required |
-|-----------------------|--------------------------------------|----------|
-| `OCTAVUS_API_URL`     | Octavus platform URL                 | No       |
-| `OCTAVUS_API_KEY`     | API key for runtime                  | Yes      |
-| `OCTAVUS_AGENT_ID`    | Agent ID (from sync)                 | Yes      |
-| `OCTAVUS_CLI_API_KEY` | API key for CLI sync                 | No       |
-| `PORT`                | Server port (default: 8889)          | No       |
+| Variable              | Description                                         | Required |
+|-----------------------|-----------------------------------------------------|----------|
+| `OCTAVUS_API_URL`     | Octavus platform URL (default `https://octavus.ai`) | No       |
+| `OCTAVUS_API_KEY`     | API key for runtime                                 | Yes      |
+| `OCTAVUS_AGENT_ID`    | Agent ID (from sync)                                | Yes      |
+| `OCTAVUS_CLI_API_KEY` | API key for CLI validate and sync                   | No       |
+| `PORT`                | Server port (default: 8889)                         | No       |
 
 ## Scripts
 
-| Script               | Description                           |
-|----------------------|---------------------------------------|
-| `npm run dev`        | Start dev server (client + server)    |
-| `npm run dev:client` | Start Vite dev server only            |
-| `npm run dev:server` | Start Express server only             |
-| `npm run build`      | Build for production                  |
-| `npm run start`      | Start production server               |
-| `npm run lint`       | Run linter                            |
-| `npm run type-check` | Run TypeScript type check             |
-| `npm run agents:sync`| Sync agent to Octavus                 |
+| Script                    | Description                           |
+|---------------------------|---------------------------------------|
+| `npm run dev`             | Start dev server (client + server)    |
+| `npm run dev:client`      | Start Vite dev server only            |
+| `npm run dev:server`      | Start Express server only             |
+| `npm run build`           | Build for production                  |
+| `npm run start`           | Start production server               |
+| `npm run lint`            | Run linter                            |
+| `npm run type-check`      | Run TypeScript type check             |
+| `npm run agents:validate` | Validate the agent definition         |
+| `npm run agents:sync`     | Sync agent to Octavus                 |
 
 ## Project Structure
 
